@@ -1,7 +1,8 @@
 package com.example.glancebetasample
 
 import android.content.Context
-import android.provider.CalendarContract.Colors
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
@@ -10,10 +11,10 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.glance.*
+import androidx.glance.action.Action
 import androidx.glance.action.action
+import androidx.glance.action.clickable
 import androidx.glance.appwidget.CircularProgressIndicator
 import androidx.glance.appwidget.GlanceAppWidget
 import androidx.glance.appwidget.GlanceAppWidgetReceiver
@@ -28,6 +29,7 @@ import androidx.glance.layout.Row
 import androidx.glance.layout.Spacer
 import androidx.glance.layout.fillMaxSize
 import androidx.glance.layout.fillMaxWidth
+import androidx.glance.layout.height
 import androidx.glance.layout.padding
 import androidx.glance.layout.width
 import androidx.glance.text.Text
@@ -44,70 +46,36 @@ class PrimitiveWidgetProvider : GlanceAppWidgetReceiver() {
 
 }
 
-private val countKey = intPreferencesKey("count")
-private val titleKey = stringPreferencesKey("title")
-
 class PrimitiveWidget : GlanceAppWidget() {
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
         provideContent {
             val (data, refetch) = fetchResult()
             val coroutineScope = rememberCoroutineScope()
-            GlanceTheme {
+            GlanceTheme(colors = colorScheme()) {
                 Content {
                     when (data) {
                         LoadState.Loading -> {
-                            Box(
-                                modifier = GlanceModifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator()
-                            }
+                            LoadingWidget()
                         }
 
                         is LoadState.Error -> {
-                            Column(modifier = GlanceModifier.fillMaxSize()) {
-                                Text(text = data.errorMessage)
-                                Button(text = "retry", onClick = action {
+                            ErrorWidget(
+                                errorMessage = data.errorMessage,
+                                onClick = action {
                                     coroutineScope.launch {
                                         refetch()
                                     }
-                                })
-                            }
+                                }
+                            )
                         }
 
                         is LoadState.Loaded -> {
-                            LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
-                                items(data.data) {
-                                    Row(
-                                        modifier = GlanceModifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 16.dp),
-                                        verticalAlignment = Alignment.Bottom
-                                    ) {
-                                        Text(
-                                            text = "+${it.likesCount}",
-                                            style = TextStyle(color = ColorProvider(Color.Green))
-                                        )
-                                        Spacer(modifier = GlanceModifier.width(4.dp))
-                                        Text(
-                                            modifier = GlanceModifier.padding(vertical = 8.dp),
-                                            text = it.title,
-                                            style = TextStyle(fontSize = 17.sp),
-                                            maxLines = 1,
-                                        )
-                                    }
-                                }
-                            }
+                            LoadedWidget(articleResponseList = data.data)
                         }
 
                         else -> {
-                            Box(
-                                modifier = GlanceModifier.fillMaxSize(),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator()
-                            }
+                            LoadingWidget()
                         }
                     }
                 }
@@ -117,14 +85,88 @@ class PrimitiveWidget : GlanceAppWidget() {
 
     @Composable
     private fun Content(content: @Composable () -> Unit) {
-        GlanceTheme {
-            Box(
-                modifier = GlanceModifier
-                    .fillMaxSize()
-                    .background(Color.White)
-                    .cornerRadius(8.dp)
-            ) {
-                content()
+        Box(
+            modifier = GlanceModifier
+                .fillMaxSize()
+                .background(GlanceTheme.colors.background)
+                .cornerRadius(8.dp)
+        ) {
+            content()
+        }
+    }
+
+    @Composable
+    private fun ErrorWidget(errorMessage: String, onClick: Action) {
+        Column(
+            modifier = GlanceModifier.fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = errorMessage,
+                style = TextStyle(
+                    color = GlanceTheme.colors.error
+                )
+            )
+            Spacer(modifier = GlanceModifier.height(8.dp))
+            Button(
+                text = "retry",
+                onClick = onClick,
+                style = TextStyle(color = GlanceTheme.colors.onError),
+                colors = ButtonDefaults.buttonColors(
+                    backgroundColor = GlanceTheme.colors.error,
+                    contentColor = GlanceTheme.colors.onError
+                )
+            )
+        }
+    }
+
+    @Composable
+    private fun LoadingWidget() {
+        Box(
+            modifier = GlanceModifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            CircularProgressIndicator(color = GlanceTheme.colors.primary)
+        }
+    }
+
+    @Composable
+    private fun LoadedWidget(articleResponseList: List<ArticleResponse>) {
+        val context = LocalContext.current
+        LazyColumn(modifier = GlanceModifier.fillMaxSize()) {
+            items(articleResponseList) {
+                Row(
+                    modifier = GlanceModifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                        .clickable(
+                            onClick = action {
+                                Intent(Intent.ACTION_VIEW, Uri.parse(it.url)).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    setPackage("com.android.chrome")
+                                }.run {
+                                    context.startActivity(this)
+                                }
+                            },
+                        ),
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    Text(
+                        text = "+${it.likesCount}",
+                        style = TextStyle(color = ColorProvider(Color.Green))
+                    )
+                    Spacer(modifier = GlanceModifier.width(4.dp))
+                    Text(
+                        modifier = GlanceModifier.padding(vertical = 8.dp),
+                        text = it.title,
+                        style = TextStyle(
+                            fontSize = 17.sp,
+                            color = GlanceTheme.colors.onBackground
+                        ),
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }
@@ -153,6 +195,7 @@ class PrimitiveWidget : GlanceAppWidget() {
         val refetch = suspend {
             flow {
                 runCatching {
+                    emit(LoadState.Loading)
                     apiClient.getArticles().body()!!
                 }.onSuccess {
                     emit(LoadState.Loaded(it))
